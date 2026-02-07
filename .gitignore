@@ -1,0 +1,48 @@
+# 依存関係（必須除外）
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# TypeScriptビルド成果物（必須除外）
+dist/
+build/
+*.js
+*.js.map
+*.d.ts.map
+*.tsbuildinfo
+
+# 環境変数（セキュリティ重要）
+.env
+.env.local
+.env.*.local
+.env.production
+
+# IDEとエディタ設定
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS固有ファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ログファイル
+*.log
+logs/
+.cache/
+
+# テストカバレッジ
+coverage/
+.nyc_output/
+
+# 一時ファイル
+*.tmp
+*.temp
+
+# データファイル（必要に応じて調整）
+# data/*.csv  # 公開するデータの場合はコメントアウト
