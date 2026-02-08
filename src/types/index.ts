@@ -1,26 +1,43 @@
-// APIレスポンスの型定義
+// 既存の型に追加
+
+// JSONデータの生データ形式
+export interface AnniversaryRawData {
+  id: number;
+  mmdd: string;
+  anniv1: string;
+  anniv2?: string;
+  anniv3?: string;
+  anniv4?: string;
+  anniv5?: string;
+}
+
+// パース済みの記念日データ
+export interface AnniversaryData {
+  id: number;
+  mmdd: string;
+  anniversaries: string[];
+}
+
+// 既存の型はそのまま維持
 export interface AnniversaryResponse {
   date: string;
-  name: string | null;
-  found: boolean;
+  anniversary: string;
 }
 
 export interface AllDataResponse {
   total: number;
-  data: Record<string, string>;
+  data: Record<string, AnniversaryData>;
 }
 
 export interface SearchResponse {
   query: string;
-  total: number;
-  results: Record<string, string>;
+  results: AnniversaryData[];
 }
 
 export interface HealthResponse {
-  status: 'healthy' | 'error';
-  timestamp: string;
-  records_loaded: number;
+  status: string;
   uptime: number;
+  timestamp: string;
 }
 
 export interface ApiInfoResponse {
@@ -33,20 +50,12 @@ export interface ApiInfoResponse {
 
 export interface ErrorResponse {
   error: string;
-  message?: string;
-  timestamp: string;
+  message: string;
 }
 
-// CSV行の型定義
-export interface CsvRow {
-  date: string;
-  name: string;
-}
-
-// アプリケーション設定の型定義
 export interface AppConfig {
   port: number;
-  csvFilePath: string;
+  dataFilePath: string;
   corsOrigin: string;
 }
 

@@ -1,40 +1,34 @@
 export class DateUtils {
   /**
-   * 今日の日付をMM-DD形式で取得
+   * DateオブジェクトからMMDD形式の文字列を生成
    */
-  static getTodayKey(): string {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${month}-${day}`;
+  static formatMMDD(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}${day}`;
   }
 
   /**
-   * 日付文字列のバリデーション
+   * MMDD形式のバリデーション
    */
-  static isValidDateKey(dateKey: string): boolean {
-    const regex = /^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/;
-    return regex.test(dateKey);
-  }
-
-  /**
-   * 日付文字列の正規化
-   */
-  static normalizeDateKey(dateInput: string): string | null {
-    // YYYY-MM-DD形式からMM-DD形式に変換
-    if (dateInput.length === 10 && dateInput.includes('-')) {
-      const parts = dateInput.split('-');
-      if (parts.length === 3) {
-        return `${parts[1]}-${parts[2]}`;
-      }
+  static isValidMMDD(mmdd: string): boolean {
+    if (!/^\d{4}$/.test(mmdd)) {
+      return false;
     }
 
-    // MM-DD形式の場合はそのまま
-    if (this.isValidDateKey(dateInput)) {
-      return dateInput;
+    const month = parseInt(mmdd.substring(0, 2), 10);
+    const day = parseInt(mmdd.substring(2, 4), 10);
+
+    if (month < 1 || month > 12) {
+      return false;
     }
 
-    return null;
+    const daysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (day < 1 || day > daysInMonth[month - 1]) {
+      return false;
+    }
+
+    return true;
   }
 }
 

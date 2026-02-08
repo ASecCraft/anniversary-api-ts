@@ -1,10 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
-import { CsvLoader } from './utils/csvLoader';
+import { JsonLoader } from './utils/jsonLoader';
 import { DateUtils } from './utils/dateUtils';
 import {
   AnniversaryResponse,
+  AnniversaryData,
   AllDataResponse,
   SearchResponse,
   HealthResponse,
@@ -15,40 +16,37 @@ import {
 
 class AnniversaryServer {
   private app: express.Application;
-  private csvLoader: CsvLoader;
-  private anniversaryData: Record<string, string> = {};
+  private jsonLoader: JsonLoader;
+  private anniversaryData: Record<string, AnniversaryData> = {};
   private startTime: number;
   private config: AppConfig;
 
   constructor() {
     this.app = express();
     this.startTime = Date.now();
-    
+
     // 設定
     this.config = {
       port: parseInt(process.env.PORT || '5000'),
-      csvFilePath: path.join(__dirname, '../data/anniversaries.csv'),
+      dataFilePath: path.join(__dirname, '../data/anniversaries.json'),
       corsOrigin: process.env.CORS_ORIGIN || '*'
     };
 
-    this.csvLoader = new CsvLoader(this.config.csvFilePath);
+    this.jsonLoader = new JsonLoader(this.config.dataFilePath);
     this.setupMiddleware();
     this.setupRoutes();
     this.setupErrorHandling();
   }
 
   private setupMiddleware(): void {
-    // CORS設定
     this.app.use(cors({
       origin: this.config.corsOrigin,
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization']
     }));
 
-    // JSON解析
     this.app.use(express.json({ limit: '10mb' }));
 
-    // リクエストログ
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
       next();
@@ -56,18 +54,18 @@ class AnniversaryServer {
   }
 
   private setupRoutes(): void {
-    // ルートエンドポイント - API情報
+    // API情報
     this.app.get('/', (req: Request, res: Response) => {
       const response: ApiInfoResponse = {
         name: 'Anniversary API',
-        version: '1.0.0',
-        description: 'TypeScript製365日記念日API',
+        version: '2.0.0',
+        description: 'TypeScript製365日記念日API（JSON版）',
         total_records: Object.keys(this.anniversaryData).length,
         endpoints: {
           'GET /': 'API情報',
           'GET /api/health': 'ヘルスチェック',
           'GET /api/today': '今日の記念日',
-          'GET /api/date/:date': '特定日付の記念日',
+          'GET /api/date/:mmdd': '特定日付の記念日（例: /api/date/0101）',
           'GET /api/all': '全データ取得',
           'GET /api/search?q=keyword': 'キーワード検索',
           'POST /api/reload': 'データ再読み込み'
@@ -80,50 +78,65 @@ class AnniversaryServer {
     this.app.get('/api/health', (req: Request, res: Response) => {
       const response: HealthResponse = {
         status: 'healthy',
-        timestamp: new Date().toISOString(),
-        records_loaded: Object.keys(this.anniversaryData).length,
-        uptime: Date.now() - this.startTime
+        uptime: Math.floor((Date.now() - this.startTime) / 1000),
+        timestamp: new Date().toISOString()
       };
       res.json(response);
     });
 
     // 今日の記念日
     this.app.get('/api/today', (req: Request, res: Response) => {
-      const todayKey = DateUtils.getTodayKey();
-      const name = this.anniversaryData[todayKey];
+      const today = new Date();
+      const mmdd = DateUtils.formatMMDD(today);
+      const data = this.anniversaryData[mmdd];
+
+      if (!data) {
+        const errorResponse: ErrorResponse = {
+          error: 'Not Found',
+          message: `今日(${mmdd})の記念日データが見つかりません`
+        };
+        return res.status(404).json(errorResponse);
+      }
 
       const response: AnniversaryResponse = {
-        date: todayKey,
-        name: name || null,
-        found: !!name
+        date: mmdd,
+        anniversary: data.anniversaries[0] // anniv1を返す
       };
-
       res.json(response);
     });
 
-    // 特定日付の記念日
-    this.app.get('/api/date/:date', (req: Request, res: Response) => {
-      const dateInput = req.params.date;
-      const normalizedDate = DateUtils.normalizeDateKey(dateInput);
+// 特定日付の記念日
+this.app.get('/api/date/:mmdd', (req: Request, res: Response) => {
+  const mmdd = req.params.mmdd as string;  // ← as string を追加
+  
+  // 入力形式を正規化
+  const normalizedKey = mmdd.replace('-', '');
+      
 
-      if (!normalizedDate) {
+      // バリデーション
+      if (!DateUtils.isValidMMDD(normalizedKey)) {
         const errorResponse: ErrorResponse = {
-          error: 'Invalid date format',
-          message: '日付はMM-DD形式またはYYYY-MM-DD形式で指定してください',
-          timestamp: new Date().toISOString()
+          error: 'Bad Request',
+          message: '日付形式が不正です。MMDD または MM-DD 形式で指定してください（例: 0101 or 01-01）'
         };
         return res.status(400).json(errorResponse);
       }
 
-      const name = this.anniversaryData[normalizedDate];
-      const response: AnniversaryResponse = {
-        date: normalizedDate,
-        name: name || null,
-        found: !!name
-      };
+      const data = this.anniversaryData[normalizedKey];
 
-      const statusCode = name ? 200 : 404;
-      res.status(statusCode).json(response);
+      if (!data) {
+        const errorResponse: ErrorResponse = {
+          error: 'Not Found',
+          message: `${mmdd}の記念日データが見つかりません`
+        };
+        return res.status(404).json(errorResponse);
+      }
+
+      const response: AnniversaryResponse = {
+        date: normalizedKey,
+        anniversary: data.anniversaries[0] // anniv1を返す
+      };
+      res.json(response);
     });
 
     // 全データ取得
@@ -137,32 +150,24 @@ class AnniversaryServer {
 
     // キーワード検索
     this.app.get('/api/search', (req: Request, res: Response) => {
-      const query = req.query.q as string;
+      const query = (req.query.q as string) || '';
 
-      if (!query || typeof query !== 'string') {
+      if (!query.trim()) {
         const errorResponse: ErrorResponse = {
-          error: 'Missing query parameter',
-          message: 'クエリパラメータ q が必要です',
-          timestamp: new Date().toISOString()
+          error: 'Bad Request',
+          message: '検索キーワードを指定してください（例: /api/search?q=記念日）'
         };
         return res.status(400).json(errorResponse);
       }
 
-      const searchTerm = query.toLowerCase().trim();
-      const results: Record<string, string> = {};
-
-      Object.entries(this.anniversaryData).forEach(([date, name]) => {
-        if (name && name.toLowerCase().includes(searchTerm)) {
-          results[date] = name;
-        }
-      });
+      const results = Object.values(this.anniversaryData).filter(item =>
+        item.anniversaries.some(anniv => anniv.includes(query))
+      );
 
       const response: SearchResponse = {
-        query: query,
-        total: Object.keys(results).length,
-        results: results
+        query,
+        results
       };
-
       res.json(response);
     });
 
@@ -171,15 +176,14 @@ class AnniversaryServer {
       try {
         await this.loadData();
         res.json({
+          success: true,
           message: 'データを再読み込みしました',
-          total_records: Object.keys(this.anniversaryData).length,
-          timestamp: new Date().toISOString()
+          total_records: Object.keys(this.anniversaryData).length
         });
       } catch (error) {
         const errorResponse: ErrorResponse = {
-          error: 'Reload failed',
-          message: error instanceof Error ? error.message : 'データの再読み込みに失敗しました',
-          timestamp: new Date().toISOString()
+          error: 'Internal Server Error',
+          message: 'データの再読み込みに失敗しました'
         };
         res.status(500).json(errorResponse);
       }
@@ -191,61 +195,39 @@ class AnniversaryServer {
     this.app.use((req: Request, res: Response) => {
       const errorResponse: ErrorResponse = {
         error: 'Not Found',
-        message: `エンドポイント ${req.method} ${req.path} が見つかりません`,
-        timestamp: new Date().toISOString()
+        message: `エンドポイント ${req.path} は存在しません`
       };
       res.status(404).json(errorResponse);
     });
 
-    // グローバルエラーハンドラー
+    // エラーハンドラー
     this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-      console.error('Unhandled error:', err);
-      
+      console.error('Error:', err);
       const errorResponse: ErrorResponse = {
         error: 'Internal Server Error',
-        message: 'サーバ内部エラーが発生しました',
-        timestamp: new Date().toISOString()
+        message: err.message || 'サーバーエラーが発生しました'
       };
       res.status(500).json(errorResponse);
     });
   }
 
-  async loadData(): Promise<void> {
-    try {
-      this.anniversaryData = await this.csvLoader.loadData();
-      console.log(`✅ CSV読み込み完了: ${Object.keys(this.anniversaryData).length}件`);
-    } catch (error) {
-      console.error('❌ CSV読み込みエラー:', error);
-      throw error;
-    }
+  private async loadData(): Promise<void> {
+    console.log('JSONデータを読み込み中...');
+    this.anniversaryData = this.jsonLoader.load();
+    console.log(`${Object.keys(this.anniversaryData).length}件のデータを読み込みました`);
   }
 
-  async start(): Promise<void> {
-    try {
-      // データの初期読み込み
-      await this.loadData();
-
-      // サーバ起動
-      this.app.listen(this.config.port, () => {
-        console.log('='.repeat(60));
-        console.log('🚀 Anniversary API Server (TypeScript)');
-        console.log('='.repeat(60));
-        console.log(`📍 Server URL: http://localhost:${this.config.port}`);
-        console.log(`📊 Records loaded: ${Object.keys(this.anniversaryData).length}`);
-        console.log(`📁 CSV file: ${this.config.csvFilePath}`);
-        console.log('='.repeat(60));
-      });
-    } catch (error) {
-      console.error('❌ サーバ起動エラー:', error);
-      process.exit(1);
-    }
+  public async start(): Promise<void> {
+    await this.loadData();
+    
+    this.app.listen(this.config.port, () => {
+      console.log(`🚀 Anniversary API Server running on port ${this.config.port}`);
+      console.log(`📅 Total records: ${Object.keys(this.anniversaryData).length}`);
+    });
   }
 }
 
-// サーバの起動
+// サーバー起動
 const server = new AnniversaryServer();
-server.start().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+server.start().catch(console.error);
 
